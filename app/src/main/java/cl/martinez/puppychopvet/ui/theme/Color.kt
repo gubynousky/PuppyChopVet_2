@@ -2,10 +2,7 @@ package cl.martinez.puppychopvet.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Paleta de colores PuppyChop
-// Basada en la identidad visual de la marca
-
-// Colores principales - Naranja PuppyChop
+// Colores principales - Naranja
 val OrangeMain = Color(0xFFFF6B35)          // Naranja principal del logo
 val OrangeLight = Color(0xFFF7931E)         // Naranja claro para contraste
 val OrangeDark = Color(0xFFE55A2B)          // Naranja oscuro para profundidad

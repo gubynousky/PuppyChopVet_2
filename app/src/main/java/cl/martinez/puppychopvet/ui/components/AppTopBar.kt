@@ -15,7 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
- * TopAppBar de PuppyChop con gradiente naranja
+ * TopAppBar
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

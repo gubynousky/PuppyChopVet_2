@@ -12,7 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
-// Tema claro - Colores PuppyChop
+// Tema claro
 private val LightColorScheme = lightColorScheme(
     primary = OrangeMain,
     onPrimary = Color.White,
@@ -41,7 +41,7 @@ private val LightColorScheme = lightColorScheme(
     outlineVariant = Color(0xFFD3C4B0)
 )
 
-// Tema oscuro - Adaptado a PuppyChop
+// Tema oscuro
 private val DarkColorScheme = darkColorScheme(
     primary = OrangeLight,
     onPrimary = Color(0xFF2B1810),

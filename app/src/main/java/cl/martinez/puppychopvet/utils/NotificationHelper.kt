@@ -117,18 +117,4 @@ object NotificationHelper {
         }
     }
 
-    /**
-     * Programa una notificación para una fecha y hora específicas
-     * TODO: Implementar con AlarmManager o WorkManager
-     */
-    fun scheduleNotification(context: Context, cita: CitaVeterinaria) {
-        // Implementación futura con AlarmManager o WorkManager
-    }
-
-    /**
-     * Cancela una notificación programada
-     */
-    fun cancelScheduledNotification(context: Context, citaId: Int) {
-        // Implementación futura
-    }
 }
