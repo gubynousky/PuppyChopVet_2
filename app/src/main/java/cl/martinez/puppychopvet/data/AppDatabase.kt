@@ -5,10 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-/**
- * Base de datos Room para PuppyChop
- * Gestiona las citas veterinarias
- */
+
 @Database(
     entities = [CitaVeterinaria::class],
     version = 1,

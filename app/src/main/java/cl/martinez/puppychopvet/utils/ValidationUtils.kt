@@ -18,7 +18,7 @@ object ValidationUtils {
 
     fun isValidEmail(email: String): Boolean {
         if (email.isBlank()) return false
-        return email.matches(Regex("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}$"))
+        return email.matches(Regex("^[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}$"))
     }
 
     fun isValidRaza(raza: String): Boolean {
@@ -84,7 +84,7 @@ object ValidationUtils {
     fun getEmailErrorMessage(email: String): String? {
         return when {
             email.isBlank() -> "El email es requerido"
-            !email.matches(Regex("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}$")) ->
+            !email.matches(Regex("^[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}$")) ->
                 "Formato de email inválido"
             else -> null
         }
