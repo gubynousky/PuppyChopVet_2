@@ -14,52 +14,68 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import cl.martinez.puppychopvet.model.TipoServicio
 import cl.martinez.puppychopvet.model.Prioridad
-import cl.martinez.puppychopvet.model.Veterinario
+import cl.martinez.puppychopvet.network.CitaRepository
+import cl.martinez.puppychopvet.network.models.*
 import cl.martinez.puppychopvet.ui.components.AppTopBarWithBack
-import cl.martinez.puppychopvet.viewmodel.CitaVeterinariaViewModel
 import kotlinx.coroutines.launch
-import java.util.Calendar
-import java.util.TimeZone
+import java.text.SimpleDateFormat
+import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FormScreen(
-    viewModel: CitaVeterinariaViewModel,
     onNavigateBack: () -> Unit
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val scope = rememberCoroutineScope()
+    val repository = remember { CitaRepository() }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Estados para veterinarios desde BD
+    var veterinarios by remember { mutableStateOf<List<Veterinario>>(emptyList()) }
+    var isLoadingVets by remember { mutableStateOf(false) }
+
+    // Estados del formulario - DATOS DEL DUEÑO
+    var nombreDueno by remember { mutableStateOf("") }
+    var telefono by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var direccion by remember { mutableStateOf("") }
+
+    // Estados del formulario - DATOS DE LA MASCOTA
+    var nombreMascota by remember { mutableStateOf("") }
+    var raza by remember { mutableStateOf("") }
+    var edad by remember { mutableStateOf("") }
+
+    // Estados del formulario - DATOS DE LA CITA
+    var tipoServicio by remember { mutableStateOf("") }
+    var motivo by remember { mutableStateOf("") }
+    var fechaCita by remember { mutableStateOf<Long?>(null) }
+    var horaCita by remember { mutableStateOf("") }
+    var veterinarioSeleccionado by remember { mutableStateOf<Veterinario?>(null) }
+    var prioridad by remember { mutableStateOf("") }
+    var notas by remember { mutableStateOf("") }
+    var notificacionActiva by remember { mutableStateOf(true) }
+
+    // Estados de UI
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
     var expandedTipoServicio by remember { mutableStateOf(false) }
     var expandedVeterinario by remember { mutableStateOf(false) }
     var expandedPrioridad by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
 
-    val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-
-    LaunchedEffect(uiState.guardadoExitoso) {
-        if (uiState.guardadoExitoso) {
-            snackbarHostState.showSnackbar(
-                message = "Cita agendada exitosamente 🐶",
-                duration = SnackbarDuration.Short
-            )
-            kotlinx.coroutines.delay(500)
-            viewModel.resetForm()
-            onNavigateBack()
+    // Cargar veterinarios al inicio
+    LaunchedEffect(Unit) {
+        isLoadingVets = true
+        repository.getAllVeterinarios().onSuccess { vets ->
+            veterinarios = vets
+        }.onFailure {
+            snackbarHostState.showSnackbar("Error al cargar veterinarios")
         }
+        isLoadingVets = false
     }
 
     Scaffold(
-        snackbarHost = {
-            SnackbarHost(hostState = snackbarHostState) { data ->
-                Snackbar(
-                    snackbarData = data,
-                    containerColor = MaterialTheme.colorScheme.inverseSurface,
-                    contentColor = MaterialTheme.colorScheme.inverseOnSurface,
-                    actionColor = MaterialTheme.colorScheme.primary
-                )
-            }
-        },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             AppTopBarWithBack(
                 title = "Nueva Cita Veterinaria",
@@ -75,7 +91,7 @@ fun FormScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Sección: Datos del Dueño
+            // SECCIÓN: Datos del Dueño
             Text(
                 text = "👤 Datos del Dueño",
                 style = MaterialTheme.typography.titleLarge,
@@ -83,43 +99,46 @@ fun FormScreen(
             )
 
             OutlinedTextField(
-                value = uiState.nombreDueno,
-                onValueChange = { viewModel.onNombreDuenoChange(it) },
+                value = nombreDueno,
+                onValueChange = { nombreDueno = it },
                 label = { Text("Nombre Completo *") },
                 leadingIcon = { Icon(Icons.Default.Person, null) },
-                isError = uiState.nombreDuenoError != null,
-                supportingText = { uiState.nombreDuenoError?.let { Text(it) } },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
 
             OutlinedTextField(
-                value = uiState.telefono,
-                onValueChange = { viewModel.onTelefonoChange(it) },
+                value = telefono,
+                onValueChange = { telefono = it },
                 label = { Text("Teléfono *") },
                 leadingIcon = { Icon(Icons.Default.Phone, null) },
-                isError = uiState.telefonoError != null,
-                supportingText = { uiState.telefonoError?.let { Text(it) } },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
 
             OutlinedTextField(
-                value = uiState.email,
-                onValueChange = { viewModel.onEmailChange(it) },
+                value = email,
+                onValueChange = { email = it },
                 label = { Text("Email *") },
                 leadingIcon = { Icon(Icons.Default.Email, null) },
-                isError = uiState.emailError != null,
-                supportingText = { uiState.emailError?.let { Text(it) } },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
 
-            Divider(modifier = Modifier.padding(vertical = 8.dp))
+            OutlinedTextField(
+                value = direccion,
+                onValueChange = { direccion = it },
+                label = { Text("Dirección *") },
+                leadingIcon = { Icon(Icons.Default.Home, null) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
 
-            // Sección: Datos de la Mascota
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // SECCIÓN: Datos de la Mascota
             Text(
                 text = "🐶 Datos de la Mascota",
                 style = MaterialTheme.typography.titleLarge,
@@ -127,12 +146,10 @@ fun FormScreen(
             )
 
             OutlinedTextField(
-                value = uiState.nombreMascota,
-                onValueChange = { viewModel.onNombreMascotaChange(it) },
+                value = nombreMascota,
+                onValueChange = { nombreMascota = it },
                 label = { Text("Nombre de la Mascota *") },
                 leadingIcon = { Icon(Icons.Default.Pets, null) },
-                isError = uiState.nombreMascotaError != null,
-                supportingText = { uiState.nombreMascotaError?.let { Text(it) } },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
@@ -142,30 +159,26 @@ fun FormScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 OutlinedTextField(
-                    value = uiState.raza,
-                    onValueChange = { viewModel.onRazaChange(it) },
+                    value = raza,
+                    onValueChange = { raza = it },
                     label = { Text("Raza *") },
-                    isError = uiState.razaError != null,
-                    supportingText = { uiState.razaError?.let { Text(it) } },
                     modifier = Modifier.weight(1f),
                     singleLine = true
                 )
 
                 OutlinedTextField(
-                    value = uiState.edad,
-                    onValueChange = { viewModel.onEdadChange(it) },
+                    value = edad,
+                    onValueChange = { edad = it },
                     label = { Text("Edad *") },
-                    isError = uiState.edadError != null,
-                    supportingText = { uiState.edadError?.let { Text(it) } },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.weight(1f),
                     singleLine = true
                 )
             }
 
-            Divider(modifier = Modifier.padding(vertical = 8.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            // Sección: Información de la Cita
+            // SECCIÓN: Información de la Cita
             Text(
                 text = "📋 Información de la Cita",
                 style = MaterialTheme.typography.titleLarge,
@@ -178,14 +191,12 @@ fun FormScreen(
                 onExpandedChange = { expandedTipoServicio = !expandedTipoServicio }
             ) {
                 OutlinedTextField(
-                    value = uiState.tipoServicio,
+                    value = tipoServicio,
                     onValueChange = {},
                     readOnly = true,
                     label = { Text("Tipo de Servicio *") },
                     leadingIcon = { Icon(Icons.Default.MedicalServices, null) },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expandedTipoServicio) },
-                    isError = uiState.tipoServicioError != null,
-                    supportingText = { uiState.tipoServicioError?.let { Text(it) } },
                     modifier = Modifier.fillMaxWidth().menuAnchor(),
                     colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
                 )
@@ -196,9 +207,9 @@ fun FormScreen(
                 ) {
                     TipoServicio.entries.forEach { tipo ->
                         DropdownMenuItem(
-                            text = { Text(tipo.displayName) },
+                            text = { Text(tipo.name) },
                             onClick = {
-                                viewModel.onTipoServicioChange(tipo.name)
+                                tipoServicio = tipo.name
                                 expandedTipoServicio = false
                             }
                         )
@@ -207,31 +218,19 @@ fun FormScreen(
             }
 
             OutlinedTextField(
-                value = uiState.motivo,
-                onValueChange = { viewModel.onMotivoChange(it) },
+                value = motivo,
+                onValueChange = { motivo = it },
                 label = { Text("Motivo de la Consulta *") },
                 placeholder = { Text("Describe el motivo de la visita") },
                 leadingIcon = { Icon(Icons.Default.Description, null) },
-                isError = uiState.motivoError != null,
-                supportingText = {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(uiState.motivoError ?: "")
-                        Text("${uiState.motivo.length}/300")
-                    }
-                },
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 3,
                 maxLines = 5
             )
 
-            // Fecha y Hora
+            // Fecha
             OutlinedTextField(
-                value = if (uiState.fechaCita != null) {
-                    formatFecha(uiState.fechaCita!!)
-                } else "",
+                value = if (fechaCita != null) formatFecha(fechaCita!!) else "",
                 onValueChange = {},
                 readOnly = true,
                 label = { Text("Fecha de la Cita *") },
@@ -241,14 +240,13 @@ fun FormScreen(
                         Icon(Icons.Default.EditCalendar, "Seleccionar fecha")
                     }
                 },
-                isError = uiState.fechaCitaError != null,
-                supportingText = { uiState.fechaCitaError?.let { Text(it) } },
                 modifier = Modifier.fillMaxWidth()
             )
 
+            // Hora
             OutlinedTextField(
-                value = uiState.horaCita,
-                onValueChange = { viewModel.onHoraCitaChange(it) },
+                value = horaCita,
+                onValueChange = { horaCita = it },
                 label = { Text("Hora (HH:mm) *") },
                 placeholder = { Text("Ej: 14:30") },
                 leadingIcon = { Icon(Icons.Default.Schedule, null) },
@@ -257,52 +255,52 @@ fun FormScreen(
                         Icon(Icons.Default.AccessTime, "Seleccionar hora")
                     }
                 },
-                isError = uiState.horaError != null,
-                supportingText = { uiState.horaError?.let { Text(it) } },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
 
-            // Veterinario
-            ExposedDropdownMenuBox(
-                expanded = expandedVeterinario,
-                onExpandedChange = { expandedVeterinario = !expandedVeterinario }
-            ) {
-                OutlinedTextField(
-                    value = uiState.veterinario,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Veterinario *") },
-                    leadingIcon = { Icon(Icons.Default.LocalHospital, null) },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expandedVeterinario) },
-                    isError = uiState.veterinarioError != null,
-                    supportingText = { uiState.veterinarioError?.let { Text(it) } },
-                    modifier = Modifier.fillMaxWidth().menuAnchor(),
-                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
-                )
-
-                ExposedDropdownMenu(
+            // Veterinario desde BD
+            if (isLoadingVets) {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+            } else {
+                ExposedDropdownMenuBox(
                     expanded = expandedVeterinario,
-                    onDismissRequest = { expandedVeterinario = false }
+                    onExpandedChange = { expandedVeterinario = !expandedVeterinario }
                 ) {
-                    Veterinario.entries.forEach { vet ->
-                        DropdownMenuItem(
-                            text = {
-                                Column {
-                                    Text(vet.displayName)
-                                    Text(
-                                        text = vet.especialidad,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                    OutlinedTextField(
+                        value = veterinarioSeleccionado?.nombre ?: "",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Veterinario *") },
+                        leadingIcon = { Icon(Icons.Default.LocalHospital, null) },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expandedVeterinario) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(),
+                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
+                    )
+
+                    ExposedDropdownMenu(
+                        expanded = expandedVeterinario,
+                        onDismissRequest = { expandedVeterinario = false }
+                    ) {
+                        veterinarios.forEach { vet ->
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text(vet.nombre)
+                                        Text(
+                                            text = vet.especialidad,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    veterinarioSeleccionado = vet
+                                    expandedVeterinario = false
                                 }
-                            },
-                            onClick = {
-                                viewModel.onVeterinarioChange(vet.name)
-                                expandedVeterinario = false
-                            }
-                        )
+                            )
+                        }
                     }
                 }
             }
@@ -313,14 +311,12 @@ fun FormScreen(
                 onExpandedChange = { expandedPrioridad = !expandedPrioridad }
             ) {
                 OutlinedTextField(
-                    value = uiState.prioridad,
+                    value = prioridad,
                     onValueChange = {},
                     readOnly = true,
                     label = { Text("Prioridad *") },
                     leadingIcon = { Icon(Icons.Default.Flag, null) },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expandedPrioridad) },
-                    isError = uiState.prioridadError != null,
-                    supportingText = { uiState.prioridadError?.let { Text(it) } },
                     modifier = Modifier.fillMaxWidth().menuAnchor(),
                     colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
                 )
@@ -329,11 +325,11 @@ fun FormScreen(
                     expanded = expandedPrioridad,
                     onDismissRequest = { expandedPrioridad = false }
                 ) {
-                    Prioridad.entries.forEach { prioridad ->
+                    Prioridad.entries.forEach { prio ->
                         DropdownMenuItem(
-                            text = { Text(prioridad.displayName) },
+                            text = { Text(prio.name) },
                             onClick = {
-                                viewModel.onPrioridadChange(prioridad.name)
+                                prioridad = prio.name
                                 expandedPrioridad = false
                             }
                         )
@@ -341,10 +337,10 @@ fun FormScreen(
                 }
             }
 
-            // Notas adicionales
+            // Notas
             OutlinedTextField(
-                value = uiState.notas,
-                onValueChange = { viewModel.onNotasChange(it) },
+                value = notas,
+                onValueChange = { notas = it },
                 label = { Text("Notas Adicionales") },
                 placeholder = { Text("Información adicional...") },
                 modifier = Modifier.fillMaxWidth(),
@@ -370,21 +366,11 @@ fun FormScreen(
                             null,
                             tint = MaterialTheme.colorScheme.primary
                         )
-                        Column {
-                            Text(
-                                "Recordatorio de cita",
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                "Recibir notificación antes de la cita",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        Text("Recordatorio de cita")
                     }
                     Switch(
-                        checked = uiState.notificacionActiva,
-                        onCheckedChange = { viewModel.toggleNotificacion() }
+                        checked = notificacionActiva,
+                        onCheckedChange = { notificacionActiva = it }
                     )
                 }
             }
@@ -393,11 +379,89 @@ fun FormScreen(
 
             // Botón guardar
             Button(
-                onClick = { viewModel.onGuardarClick() },
+                onClick = {
+                    scope.launch {
+                        isLoading = true
+
+                        // Validar campos
+                        if (nombreDueno.isBlank() || telefono.isBlank() || email.isBlank() ||
+                            direccion.isBlank() || nombreMascota.isBlank() || raza.isBlank() ||
+                            edad.isBlank() || tipoServicio.isBlank() || motivo.isBlank() ||
+                            fechaCita == null || horaCita.isBlank() || veterinarioSeleccionado == null ||
+                            prioridad.isBlank()) {
+                            snackbarHostState.showSnackbar("Por favor completa todos los campos obligatorios")
+                            isLoading = false
+                            return@launch
+                        }
+
+                        // 1. Crear usuario
+                        val usuarioResult = repository.createUsuario(
+                            Usuario(
+                                nombre = nombreDueno,
+                                telefono = telefono,
+                                email = email,
+                                direccion = direccion
+                            )
+                        )
+
+                        if (usuarioResult.isFailure) {
+                            snackbarHostState.showSnackbar("Error al crear usuario")
+                            isLoading = false
+                            return@launch
+                        }
+
+                        val usuarioCreado = usuarioResult.getOrNull()!!
+
+                        // 2. Crear mascota
+                        val mascotaResult = repository.createMascota(
+                            Mascota(
+                                nombre = nombreMascota,
+                                raza = raza,
+                                edad = edad.toInt(),
+                                dueno = UsuarioRef(usuarioCreado.id!!)
+                            )
+                        )
+
+                        if (mascotaResult.isFailure) {
+                            snackbarHostState.showSnackbar("Error al crear mascota")
+                            isLoading = false
+                            return@launch
+                        }
+
+                        val mascotaCreada = mascotaResult.getOrNull()!!
+
+                        // 3. Crear cita
+                        val citaRequest = CitaVeterinariaRequest(
+                            usuario = UsuarioRef(usuarioCreado.id!!),
+                            mascota = MascotaRef(mascotaCreada.id!!),
+                            veterinario = VeterinarioRef(veterinarioSeleccionado!!.id!!),
+                            fechaCita = formatFechaParaBackend(fechaCita!!),
+                            horaCita = "$horaCita:00",
+                            tipoServicio = tipoServicio,
+                            motivo = motivo,
+                            prioridad = prioridad,
+                            confirmada = false,
+                            notificacionActiva = notificacionActiva,
+                            notas = notas
+                        )
+
+                        val citaResult = repository.createCita(citaRequest)
+
+                        if (citaResult.isSuccess) {
+                            snackbarHostState.showSnackbar("Cita agendada exitosamente 🐶")
+                            kotlinx.coroutines.delay(500)
+                            onNavigateBack()
+                        } else {
+                            snackbarHostState.showSnackbar("Error al crear cita")
+                        }
+
+                        isLoading = false
+                    }
+                },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !uiState.isLoading
+                enabled = !isLoading
             ) {
-                if (uiState.isLoading) {
+                if (isLoading) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(24.dp),
                         color = MaterialTheme.colorScheme.onPrimary
@@ -414,25 +478,13 @@ fun FormScreen(
     // DatePicker
     if (showDatePicker) {
         val datePickerState = rememberDatePickerState(
-            initialSelectedDateMillis = uiState.fechaCita ?: System.currentTimeMillis()
+            initialSelectedDateMillis = fechaCita ?: System.currentTimeMillis()
         )
-
         DatePickerDialog(
             onDismissRequest = { showDatePicker = false },
             confirmButton = {
                 TextButton(onClick = {
-                    datePickerState.selectedDateMillis?.let { utcMillis ->
-                        val calendar = Calendar.getInstance()
-                        val timeZone = TimeZone.getDefault()
-                        val offset = timeZone.getOffset(utcMillis)
-                        val localMillis = utcMillis + offset
-                        calendar.timeInMillis = localMillis
-                        calendar.set(Calendar.HOUR_OF_DAY, 12)
-                        calendar.set(Calendar.MINUTE, 0)
-                        calendar.set(Calendar.SECOND, 0)
-                        calendar.set(Calendar.MILLISECOND, 0)
-                        viewModel.onFechaCitaChange(calendar.timeInMillis)
-                    }
+                    fechaCita = datePickerState.selectedDateMillis
                     showDatePicker = false
                 }) { Text("Aceptar") }
             },
@@ -446,31 +498,16 @@ fun FormScreen(
 
     // TimePicker
     if (showTimePicker) {
-        val currentTime = try {
-            if (uiState.horaCita.isNotEmpty()) {
-                val parts = uiState.horaCita.split(":")
-                Pair(parts[0].toInt(), parts[1].toInt())
-            } else {
-                val calendar = Calendar.getInstance()
-                Pair(calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE))
-            }
-        } catch (e: Exception) {
-            val calendar = Calendar.getInstance()
-            Pair(calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE))
-        }
-
         val timePickerState = rememberTimePickerState(
-            initialHour = currentTime.first,
-            initialMinute = currentTime.second,
+            initialHour = 9,
+            initialMinute = 0,
             is24Hour = true
         )
-
         AlertDialog(
             onDismissRequest = { showTimePicker = false },
             confirmButton = {
                 TextButton(onClick = {
-                    val hora = String.format("%02d:%02d", timePickerState.hour, timePickerState.minute)
-                    viewModel.onHoraCitaChange(hora)
+                    horaCita = String.format("%02d:%02d", timePickerState.hour, timePickerState.minute)
                     showTimePicker = false
                 }) { Text("Aceptar") }
             },
@@ -478,27 +515,18 @@ fun FormScreen(
                 TextButton(onClick = { showTimePicker = false }) { Text("Cancelar") }
             },
             text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        "Seleccionar Hora",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                    TimePicker(
-                        state = timePickerState,
-                        modifier = Modifier.padding(16.dp)
-                    )
-                }
+                TimePicker(state = timePickerState)
             }
         )
     }
 }
 
 fun formatFecha(millis: Long): String {
-    val dateFormat = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
-    dateFormat.timeZone = java.util.TimeZone.getDefault()
-    return dateFormat.format(java.util.Date(millis))
+    val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+    return sdf.format(Date(millis))
+}
+
+fun formatFechaParaBackend(millis: Long): String {
+    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+    return sdf.format(Date(millis))
 }
