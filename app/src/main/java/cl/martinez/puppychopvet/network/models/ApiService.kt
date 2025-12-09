@@ -67,6 +67,12 @@ interface ApiService {
     @PATCH("citas/{id}/confirmar")
     suspend fun confirmarCita(@Path("id") id: Long): Response<CitaVeterinariaResponse>
 
+    @PUT("citas/{id}")
+    suspend fun actualizarCita(
+        @Path("id") id: Long,
+        @Body cita: CitaVeterinariaRequest
+    ): Response<CitaVeterinariaResponse>
+
     @GET("citas/usuario/{usuarioId}")
     suspend fun getCitasByUsuario(@Path("usuarioId") usuarioId: Long): Response<List<CitaVeterinariaResponse>>
 

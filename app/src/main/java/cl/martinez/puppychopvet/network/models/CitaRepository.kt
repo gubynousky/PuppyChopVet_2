@@ -168,6 +168,19 @@ class CitaRepository {
         }
     }
 
+    suspend fun actualizarCita(citaId: Long, cita: CitaVeterinariaRequest): Result<CitaVeterinariaResponse> = withContext(Dispatchers.IO) {
+        try {
+            val response = api.actualizarCita(citaId, cita)
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!)
+            } else {
+                Result.failure(Exception("Error: ${response.code()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun deleteCita(citaId: Long): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
             val response = api.deleteCita(citaId)

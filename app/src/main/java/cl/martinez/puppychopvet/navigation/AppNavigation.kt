@@ -6,6 +6,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import cl.martinez.puppychopvet.view.DetailScreen
 import cl.martinez.puppychopvet.view.FormScreen
 import cl.martinez.puppychopvet.view.HomeScreen
 
@@ -44,8 +45,6 @@ fun AppNavigation(
             )
         }
 
-        // Puedes agregar DetailScreen después
-        /*
         composable(
             route = Screen.Detail.route,
             arguments = listOf(
@@ -62,6 +61,5 @@ fun AppNavigation(
                 }
             )
         }
-        */
     }
 }

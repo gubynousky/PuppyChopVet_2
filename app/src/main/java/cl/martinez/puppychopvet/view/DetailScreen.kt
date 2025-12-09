@@ -9,44 +9,41 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import cl.martinez.puppychopvet.data.CitaVeterinaria
-import cl.martinez.puppychopvet.model.Prioridad
-import cl.martinez.puppychopvet.model.TipoServicio
-import cl.martinez.puppychopvet.model.Veterinario
+import cl.martinez.puppychopvet.network.CitaRepository
+import cl.martinez.puppychopvet.network.models.*
 import cl.martinez.puppychopvet.ui.components.AppTopBarWithBack
-import cl.martinez.puppychopvet.utils.ShareHelper
-import cl.martinez.puppychopvet.viewmodel.CitaVeterinariaViewModel
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DetailScreen(
-    citaId: Int,
-    viewModel: CitaVeterinariaViewModel,
+    citaId: Long,
     onNavigateBack: () -> Unit
 ) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
-
-    var cita by remember { mutableStateOf<CitaVeterinaria?>(null) }
+    val repository = remember { CitaRepository() }
     val snackbarHostState = remember { SnackbarHostState() }
-    var showDeleteDialog by remember { mutableStateOf(false) }
-    var showToggleDialog by remember { mutableStateOf(false) }
 
+    var cita by remember { mutableStateOf<CitaVeterinariaResponse?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showConfirmDialog by remember { mutableStateOf(false) }
+
+    // Cargar cita al inicio
     LaunchedEffect(citaId) {
-        scope.launch {
-            cita = viewModel.getCitaById(citaId)
+        isLoading = true
+        repository.getAllCitas().onSuccess { citas ->
+            cita = citas.find { it.id == citaId }
+        }.onFailure {
+            snackbarHostState.showSnackbar("Error al cargar la cita")
         }
+        isLoading = false
     }
 
     // Diálogo eliminar
-    if (showDeleteDialog && cita != null) {
+    if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
             icon = {
@@ -58,20 +55,20 @@ fun DetailScreen(
             },
             title = { Text("Eliminar cita") },
             text = {
-                Text("¿Estás seguro de eliminar la cita de ${cita?.nombreMascota}? Esta acción no se puede deshacer.")
+                Text("¿Estás seguro de eliminar la cita de ${cita?.mascota?.nombre}? Esta acción no se puede deshacer.")
             },
             confirmButton = {
                 Button(
                     onClick = {
                         scope.launch {
-                            cita?.let { viewModel.deleteCita(it) }
-                            showDeleteDialog = false
-                            snackbarHostState.showSnackbar(
-                                message = "Cita eliminada",
-                                duration = SnackbarDuration.Short
-                            )
-                            kotlinx.coroutines.delay(500)
-                            onNavigateBack()
+                            repository.deleteCita(citaId).onSuccess {
+                                showDeleteDialog = false
+                                snackbarHostState.showSnackbar("Cita eliminada")
+                                kotlinx.coroutines.delay(500)
+                                onNavigateBack()
+                            }.onFailure {
+                                snackbarHostState.showSnackbar("Error al eliminar")
+                            }
                         }
                     },
                     colors = ButtonDefaults.buttonColors(
@@ -90,10 +87,12 @@ fun DetailScreen(
     }
 
     // Diálogo confirmar/desconfirmar
-    if (showToggleDialog && cita != null) {
+    if (showConfirmDialog && cita != null) {
         val citaActual = cita!!
+        val nuevoEstado = !citaActual.confirmada
+
         AlertDialog(
-            onDismissRequest = { showToggleDialog = false },
+            onDismissRequest = { showConfirmDialog = false },
             icon = {
                 Icon(
                     imageVector = if (citaActual.confirmada) Icons.Default.Refresh else Icons.Default.CheckCircle,
@@ -106,25 +105,39 @@ fun DetailScreen(
             },
             text = {
                 val accion = if (citaActual.confirmada) "pendiente" else "confirmada"
-                Text("¿Deseas marcar la cita de ${citaActual.nombreMascota} como $accion?")
+                Text("¿Deseas marcar la cita de ${citaActual.mascota.nombre} como $accion?")
             },
             confirmButton = {
                 Button(
                     onClick = {
                         scope.launch {
-                            viewModel.toggleConfirmada(citaActual.id, !citaActual.confirmada)
-                            showToggleDialog = false
-                            val mensaje = if (!citaActual.confirmada) {
-                                "Cita confirmada ✓"
-                            } else {
-                                "Marcada como pendiente"
-                            }
-                            snackbarHostState.showSnackbar(
-                                message = mensaje,
-                                duration = SnackbarDuration.Short
+                            val citaActualizada = CitaVeterinariaRequest(
+                                usuario = UsuarioRef(citaActual.usuario.id!!),
+                                mascota = MascotaRef(citaActual.mascota.id!!),
+                                veterinario = VeterinarioRef(citaActual.veterinario.id!!),
+                                fechaCita = citaActual.fechaCita,
+                                horaCita = citaActual.horaCita,
+                                tipoServicio = citaActual.tipoServicio,
+                                motivo = citaActual.motivo,
+                                prioridad = citaActual.prioridad,
+                                confirmada = nuevoEstado,
+                                notificacionActiva = citaActual.notificacionActiva,
+                                notas = citaActual.notas
                             )
-                            kotlinx.coroutines.delay(500)
-                            onNavigateBack()
+
+                            repository.actualizarCita(citaId, citaActualizada).onSuccess {
+                                showConfirmDialog = false
+                                val mensaje = if (nuevoEstado) {
+                                    "Cita confirmada ✓"
+                                } else {
+                                    "Marcada como pendiente"
+                                }
+                                snackbarHostState.showSnackbar(mensaje)
+                                kotlinx.coroutines.delay(500)
+                                onNavigateBack()
+                            }.onFailure {
+                                snackbarHostState.showSnackbar("Error al actualizar: ${it.message}")
+                            }
                         }
                     }
                 ) {
@@ -132,7 +145,7 @@ fun DetailScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showToggleDialog = false }) {
+                TextButton(onClick = { showConfirmDialog = false }) {
                     Text("Cancelar")
                 }
             }
@@ -140,38 +153,16 @@ fun DetailScreen(
     }
 
     Scaffold(
-        snackbarHost = {
-            SnackbarHost(hostState = snackbarHostState) { data ->
-                Snackbar(
-                    snackbarData = data,
-                    containerColor = MaterialTheme.colorScheme.inverseSurface,
-                    contentColor = MaterialTheme.colorScheme.inverseOnSurface,
-                    actionColor = MaterialTheme.colorScheme.primary
-                )
-            }
-        },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             AppTopBarWithBack(
                 title = "Detalle de Cita",
-                onBackClick = onNavigateBack,
-                actions = {
-                    IconButton(
-                        onClick = {
-                            cita?.let {
-                                ShareHelper.compartirCita(context, it)
-                            }
-                        }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = "Compartir"
-                        )
-                    }
-                }
+                onBackClick = onNavigateBack
             )
         }
     ) { paddingValues ->
-        if (cita == null) {
+
+        if (isLoading) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -179,6 +170,29 @@ fun DetailScreen(
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator()
+            }
+        } else if (cita == null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Error,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                    Text("Cita no encontrada")
+                    Button(onClick = onNavigateBack) {
+                        Text("Volver")
+                    }
+                }
             }
         } else {
             Column(
@@ -190,9 +204,6 @@ fun DetailScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 val citaActual = cita!!
-                val prioridad = Prioridad.fromString(citaActual.prioridad)
-                val tipoServicio = TipoServicio.fromString(citaActual.tipoServicio)
-                val veterinario = Veterinario.fromString(citaActual.veterinario)
 
                 // Card de estado
                 if (citaActual.confirmada) {
@@ -225,7 +236,7 @@ fun DetailScreen(
                     }
                 }
 
-                // Sección: Datos del Dueño
+                // SECCIÓN: Datos del Dueño
                 Text(
                     text = "👤 Datos del Dueño",
                     style = MaterialTheme.typography.titleLarge,
@@ -243,24 +254,30 @@ fun DetailScreen(
                         InfoRow(
                             icon = Icons.Default.Person,
                             label = "Nombre",
-                            value = citaActual.nombreDueno
+                            value = citaActual.usuario.nombre
                         )
                         HorizontalDivider()
                         InfoRow(
                             icon = Icons.Default.Phone,
                             label = "Teléfono",
-                            value = citaActual.telefono
+                            value = citaActual.usuario.telefono
                         )
                         HorizontalDivider()
                         InfoRow(
                             icon = Icons.Default.Email,
                             label = "Email",
-                            value = citaActual.email
+                            value = citaActual.usuario.email
+                        )
+                        HorizontalDivider()
+                        InfoRow(
+                            icon = Icons.Default.Home,
+                            label = "Dirección",
+                            value = citaActual.usuario.direccion
                         )
                     }
                 }
 
-                // Sección: Datos de la Mascota
+                // SECCIÓN: Datos de la Mascota
                 Text(
                     text = "🐶 Datos de la Mascota",
                     style = MaterialTheme.typography.titleLarge,
@@ -278,99 +295,30 @@ fun DetailScreen(
                         InfoRow(
                             icon = Icons.Default.Pets,
                             label = "Nombre",
-                            value = citaActual.nombreMascota
+                            value = citaActual.mascota.nombre
                         )
                         HorizontalDivider()
                         InfoRow(
                             icon = Icons.Default.Category,
                             label = "Raza",
-                            value = citaActual.raza
+                            value = citaActual.mascota.raza
                         )
                         HorizontalDivider()
                         InfoRow(
                             icon = Icons.Default.Cake,
                             label = "Edad",
-                            value = "${citaActual.edad} años"
+                            value = "${citaActual.mascota.edad} años"
                         )
                     }
                 }
 
-                // Sección: Información de la Cita
+                // SECCIÓN: Información de la Cita
                 Text(
                     text = "📋 Información de la Cita",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
                 )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Card(
-                        modifier = Modifier.weight(1f),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer
-                        )
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.MedicalServices,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Servicio",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            Text(
-                                text = tipoServicio.displayName,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
-                    }
-
-                    Card(
-                        modifier = Modifier.weight(1f),
-                        colors = CardDefaults.cardColors(
-                            containerColor = Color(prioridad.colorValue)
-                        )
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Flag,
-                                contentDescription = null,
-                                tint = Color.White
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Prioridad",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = Color.White
-                            )
-                            Text(
-                                text = prioridad.displayName,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                        }
-                    }
-                }
 
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(
@@ -380,9 +328,15 @@ fun DetailScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         InfoRow(
+                            icon = Icons.Default.MedicalServices,
+                            label = "Tipo de Servicio",
+                            value = citaActual.tipoServicio
+                        )
+                        HorizontalDivider()
+                        InfoRow(
                             icon = Icons.Default.CalendarToday,
                             label = "Fecha",
-                            value = formatearFechaDetail(citaActual.fechaCita)
+                            value = citaActual.fechaCita
                         )
                         HorizontalDivider()
                         InfoRow(
@@ -394,7 +348,13 @@ fun DetailScreen(
                         InfoRow(
                             icon = Icons.Default.LocalHospital,
                             label = "Veterinario",
-                            value = veterinario.displayName
+                            value = citaActual.veterinario.nombre
+                        )
+                        HorizontalDivider()
+                        InfoRow(
+                            icon = Icons.Default.Flag,
+                            label = "Prioridad",
+                            value = citaActual.prioridad
                         )
                     }
                 }
@@ -490,7 +450,7 @@ fun DetailScreen(
 
                 // Botón confirmar/desconfirmar
                 Button(
-                    onClick = { showToggleDialog = true },
+                    onClick = { showConfirmDialog = true },
                     modifier = Modifier.fillMaxWidth(),
                     colors = if (citaActual.confirmada) {
                         ButtonDefaults.buttonColors(
@@ -558,11 +518,4 @@ fun InfoRow(
             )
         }
     }
-}
-
-// Función privada para formatear fechas en DetailScreen
-private fun formatearFechaDetail(millis: Long): String {
-    val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
-    dateFormat.timeZone = TimeZone.getDefault()
-    return dateFormat.format(Date(millis))
 }
