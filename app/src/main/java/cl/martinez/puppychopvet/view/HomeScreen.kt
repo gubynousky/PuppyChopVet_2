@@ -1,5 +1,6 @@
 package cl.martinez.puppychopvet.view
 
+import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -28,22 +29,43 @@ fun HomeScreen(
     var citas by remember { mutableStateOf<List<CitaVeterinariaResponse>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var filtroActual by remember { mutableStateOf(FiltroCita.PENDIENTES) }
+    var refreshTrigger by remember { mutableStateOf(0) } // ✅ Para forzar recarga
 
-    // Cargar citas al inicio
-    LaunchedEffect(filtroActual) {
-        isLoading = true
-        val result = when (filtroActual) {
-            FiltroCita.PENDIENTES -> repository.getCitasPendientes()
-            FiltroCita.CONFIRMADAS -> repository.getCitasConfirmadas()
-            FiltroCita.TODAS -> repository.getAllCitas()
-        }
+    // Función para cargar citas
+    fun cargarCitas() {
+        scope.launch {
+            isLoading = true
+            try {
+                val result = when (filtroActual) {
+                    FiltroCita.PENDIENTES -> repository.getCitasPendientes()
+                    FiltroCita.CONFIRMADAS -> repository.getCitasConfirmadas()
+                    FiltroCita.TODAS -> repository.getAllCitas()
+                }
 
-        result.onSuccess {
-            citas = it
-        }.onFailure {
-            snackbarHostState.showSnackbar("Error al cargar citas")
+                result.onSuccess { listaCitas ->
+                    citas = listaCitas
+                }.onFailure { error ->
+                    Log.e("HomeScreen", "Error cargando citas", error)
+                    snackbarHostState.showSnackbar(
+                        message = "Error: ${error.message ?: "No se pudo conectar al servidor"}",
+                        duration = SnackbarDuration.Short
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e("HomeScreen", "Excepción al cargar citas", e)
+                snackbarHostState.showSnackbar(
+                    message = "Error de conexión. Verifica que el backend esté corriendo.",
+                    duration = SnackbarDuration.Long
+                )
+            } finally {
+                isLoading = false
+            }
         }
-        isLoading = false
+    }
+
+    // Cargar citas cuando cambia el filtro o se solicita refresh
+    LaunchedEffect(filtroActual, refreshTrigger) {
+        cargarCitas()
     }
 
     Scaffold(
@@ -75,59 +97,114 @@ fun HomeScreen(
                 FilterChip(
                     selected = filtroActual == FiltroCita.PENDIENTES,
                     onClick = { filtroActual = FiltroCita.PENDIENTES },
-                    label = { Text("Pendientes") }
+                    label = { Text("Pendientes") },
+                    enabled = !isLoading
                 )
                 FilterChip(
                     selected = filtroActual == FiltroCita.CONFIRMADAS,
                     onClick = { filtroActual = FiltroCita.CONFIRMADAS },
-                    label = { Text("Confirmadas") }
+                    label = { Text("Confirmadas") },
+                    enabled = !isLoading
                 )
                 FilterChip(
                     selected = filtroActual == FiltroCita.TODAS,
                     onClick = { filtroActual = FiltroCita.TODAS },
-                    label = { Text("Todas") }
+                    label = { Text("Todas") },
+                    enabled = !isLoading
                 )
             }
 
+            // Estado de carga
             if (isLoading) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator()
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        CircularProgressIndicator()
+                        Text(
+                            text = "Cargando citas...",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
-            } else if (citas.isEmpty()) {
+            }
+            // Lista vacía
+            else if (citas.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("No hay citas")
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CalendarToday,
+                            contentDescription = null,
+                            modifier = Modifier.size(64.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "No hay citas ${filtroActual.nombre}",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Button(onClick = { refreshTrigger++ }) {
+                            Icon(Icons.Default.Refresh, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Recargar")
+                        }
+                    }
                 }
-            } else {
+            }
+            // Lista de citas
+            else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(citas) { cita ->
+                    items(citas, key = { it.id }) { cita ->
                         CitaCard(
                             cita = cita,
                             onClick = { onNavigateToDetail(cita.id) },
                             onConfirmar = {
                                 scope.launch {
-                                    repository.confirmarCita(cita.id).onSuccess {
-                                        snackbarHostState.showSnackbar("Cita confirmada ✓")
-                                        // Recargar
-                                        filtroActual = filtroActual
+                                    try {
+                                        repository.confirmarCita(cita.id).onSuccess {
+                                            snackbarHostState.showSnackbar("Cita confirmada ✓")
+                                            refreshTrigger++ // ✅ Recarga explícita
+                                        }.onFailure { error ->
+                                            Log.e("HomeScreen", "Error confirmando", error)
+                                            snackbarHostState.showSnackbar(
+                                                "Error al confirmar: ${error.message}"
+                                            )
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e("HomeScreen", "Excepción confirmando", e)
+                                        snackbarHostState.showSnackbar("Error de conexión")
                                     }
                                 }
                             },
                             onEliminar = {
                                 scope.launch {
-                                    repository.deleteCita(cita.id).onSuccess {
-                                        snackbarHostState.showSnackbar("Cita eliminada")
-                                        // Recargar
-                                        filtroActual = filtroActual
+                                    try {
+                                        repository.deleteCita(cita.id).onSuccess {
+                                            snackbarHostState.showSnackbar("Cita eliminada")
+                                            refreshTrigger++ // ✅ Recarga explícita
+                                        }.onFailure { error ->
+                                            Log.e("HomeScreen", "Error eliminando", error)
+                                            snackbarHostState.showSnackbar(
+                                                "Error al eliminar: ${error.message}"
+                                            )
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e("HomeScreen", "Excepción eliminando", e)
+                                        snackbarHostState.showSnackbar("Error de conexión")
                                     }
                                 }
                             }
@@ -147,6 +224,9 @@ fun CitaCard(
     onConfirmar: () -> Unit,
     onEliminar: () -> Unit
 ) {
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var isProcessing by remember { mutableStateOf(false) }
+
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth()
@@ -156,10 +236,54 @@ fun CitaCard(
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            Text(
-                text = "🐶 ${cita.mascota.nombre}",
-                style = MaterialTheme.typography.titleMedium
-            )
+            // Header con estado
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "🐶 ${cita.mascota.nombre}",
+                    style = MaterialTheme.typography.titleMedium
+                )
+
+                // Badge de estado
+                if (cita.confirmada) {
+                    AssistChip(
+                        onClick = {},
+                        label = { Text("Confirmada") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                    )
+                } else {
+                    AssistChip(
+                        onClick = {},
+                        label = { Text("Pendiente") },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Schedule,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer
+                        )
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // Información
             Text(
                 text = "Dueño: ${cita.usuario.nombre}",
                 style = MaterialTheme.typography.bodyMedium
@@ -169,37 +293,105 @@ fun CitaCard(
                 style = MaterialTheme.typography.bodyMedium
             )
             Text(
-                text = "${cita.fechaCita} - ${cita.horaCita}",
-                style = MaterialTheme.typography.bodySmall
+                text = "📅 ${cita.fechaCita} - ⏰ ${cita.horaCita}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(Modifier.height(8.dp))
+            if (cita.motivo.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Motivo: ${cita.motivo}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
 
+            Spacer(Modifier.height(12.dp))
+
+            // Botones de acción
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (!cita.confirmada) {
                     Button(
-                        onClick = onConfirmar,
-                        modifier = Modifier.weight(1f)
+                        onClick = {
+                            isProcessing = true
+                            onConfirmar()
+                        },
+                        modifier = Modifier.weight(1f),
+                        enabled = !isProcessing
                     ) {
-                        Text("Confirmar")
+                        if (isProcessing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(Icons.Default.Check, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Confirmar")
+                        }
                     }
                 }
+
                 OutlinedButton(
-                    onClick = onEliminar,
-                    modifier = Modifier.weight(1f)
+                    onClick = { showDeleteDialog = true },
+                    modifier = Modifier.weight(1f),
+                    enabled = !isProcessing,
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
                 ) {
+                    Icon(Icons.Default.Delete, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
                     Text("Eliminar")
                 }
             }
         }
     }
+
+    // Diálogo de confirmación de eliminación
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            icon = {
+                Icon(
+                    Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = { Text("¿Eliminar cita?") },
+            text = {
+                Text("Se eliminará la cita de ${cita.mascota.nombre} el ${cita.fechaCita}. Esta acción no se puede deshacer.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteDialog = false
+                        isProcessing = true
+                        onEliminar()
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Eliminar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
 }
 
-enum class FiltroCita {
-    PENDIENTES,
-    CONFIRMADAS,
-    TODAS
+enum class FiltroCita(val nombre: String) {
+    PENDIENTES("pendientes"),
+    CONFIRMADAS("confirmadas"),
+    TODAS("todas")
 }
